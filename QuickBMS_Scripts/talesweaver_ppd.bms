@@ -1,0 +1,65 @@
+# TalesWeaver PPD (Polygon Path Data) Extractor
+# By NeonFoundry 2026
+#
+# PPD files contain collision/path polygon data for maps
+# Format:
+# - Version (uint16)
+# - Polygon count (uint16)
+# - Padding
+# - Polygon entries: point_count (uint16) + X,Y pairs (uint16 each)
+#
+# This script extracts PPD to a simple text format
+# Usage:
+#   quickbms talesweaver_ppd.bms input.ppd output_folder/
+
+endian little
+
+# Read header
+get VERSION short
+get POLY_COUNT short
+
+print "PPD File - Version: %VERSION%, Polygons: %POLY_COUNT%"
+
+# Skip padding zeros
+goto 8
+do
+    get CHECK short
+    if CHECK != 0
+        math LAST_POS POS
+        math LAST_POS -= 2
+        goto LAST_POS
+        break
+    endif
+while CHECK == 0
+
+# Create output filename
+get BASENAME basename
+string TXTNAME p "%s.txt" BASENAME
+
+# Open output text file for writing
+log MEMORY_FILE 0 0
+putVarChr MEMORY_FILE 0 string "PPD Polygon Data\n"
+putVarChr MEMORY_FILE POS string p "Version: %d\n" VERSION
+putVarChr MEMORY_FILE POS string p "Polygon Count: %d\n\n" POLY_COUNT
+
+# Parse polygons
+for i = 0 < POLY_COUNT
+    get POINT_COUNT short
+
+    putVarChr MEMORY_FILE POS string p "Polygon %d: %d points\n" i POINT_COUNT
+
+    # Read coordinate pairs
+    for p = 0 < POINT_COUNT
+        get X short
+        get Y short
+        putVarChr MEMORY_FILE POS string p "  Point %d: (%d, %d)\n" p X Y
+    next p
+
+    putVarChr MEMORY_FILE POS string "\n"
+next i
+
+# Save the memory file
+getDstring TXTDATA POS MEMORY_FILE
+log TXTNAME 0 POS MEMORY_FILE
+
+print "Extraction complete: %TXTNAME%"

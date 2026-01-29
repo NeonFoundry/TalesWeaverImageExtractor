@@ -1,0 +1,121 @@
+# TalesWeaver TEX.DAT Archive Extractor
+# By NeonFoundry 2026
+#
+# Format: D2PACKFILE2
+# - Archive index in TEX.DAT
+# - Data files in TEX0.DAT through TEX19.DAT
+# - Files are zlib compressed
+#
+# Usage:
+#   quickbms talesweaver_tex.bms TEX.DAT output_folder/
+
+endian little
+
+# Read and display magic header
+getdstring MAGIC 11
+get VER byte
+print "Archive: %MAGIC% (version %VER%)"
+
+# Skip to entry table at offset 0x18
+goto 0x18
+
+# We don't know the count ahead of time, so we'll read until we hit the terminator
+set ENTRY_NUM 0
+set CONTINUE 1
+
+# Main extraction loop
+do
+    # Save current offset for potential rewind
+    savepos ENTRY_OFFSET
+
+    # Read entry marker
+    get MARKER long
+
+    # Check for terminator (0x09)
+    if MARKER == 0x09
+        set CONTINUE 0
+        break
+    endif
+
+    # Check for valid entry marker (0x08)
+    if MARKER != 0x08
+        print "Warning: Unexpected marker %MARKER% at offset %ENTRY_OFFSET%"
+        set CONTINUE 0
+        break
+    endif
+
+    # Read encoded file ID and decode with XOR 0x85
+    get FILE_ID_ENC long
+    xmath FILE_ID_B0 "(FILE_ID_ENC & 0xFF) ^ 0x85"
+    xmath FILE_ID_B1 "((FILE_ID_ENC >> 8) & 0xFF) ^ 0x85"
+    xmath FILE_ID_B2 "((FILE_ID_ENC >> 16) & 0xFF) ^ 0x85"
+    xmath FILE_ID_B3 "((FILE_ID_ENC >> 24) & 0xFF) ^ 0x85"
+    xmath FILE_ID "(FILE_ID_B0) | (FILE_ID_B1 << 8) | (FILE_ID_B2 << 16) | (FILE_ID_B3 << 24)"
+
+    # Skip extension marker (4 bytes)
+    get EXT_MARKER long
+
+    # Read DAT file number
+    get DAT_NUM long
+
+    # Read offset within DAT file
+    get DAT_OFFSET long
+
+    # Read sizes
+    get UNCOMP_SIZE long
+    get COMP_SIZE long
+
+    # Generate filename from FILE_ID
+    # Format: [high]_[folder]_[filenum].hdt
+    xmath FILE_HIGH "(FILE_ID >> 24) & 0xFF"
+    xmath FILE_FOLDER "(FILE_ID >> 8) & 0xFFFF"
+    xmath FILE_NUM "FILE_ID & 0xFF"
+
+    # Pad with zeros for sorting
+    if FILE_FOLDER < 10
+        if FILE_NUM < 10
+            string FILENAME p "%02d_000%d_0%d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        elif FILE_NUM < 100
+            string FILENAME p "%02d_000%d_%02d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        else
+            string FILENAME p "%02d_000%d_%d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        endif
+    elif FILE_FOLDER < 100
+        if FILE_NUM < 10
+            string FILENAME p "%02d_00%d_0%d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        elif FILE_NUM < 100
+            string FILENAME p "%02d_00%d_%02d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        else
+            string FILENAME p "%02d_00%d_%d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        endif
+    elif FILE_FOLDER < 1000
+        if FILE_NUM < 10
+            string FILENAME p "%02d_0%d_0%d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        elif FILE_NUM < 100
+            string FILENAME p "%02d_0%d_%02d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        else
+            string FILENAME p "%02d_0%d_%d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        endif
+    else
+        if FILE_NUM < 10
+            string FILENAME p "%02d_%d_0%d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        elif FILE_NUM < 100
+            string FILENAME p "%02d_%d_%02d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        else
+            string FILENAME p "%02d_%d_%d.hdt" FILE_HIGH FILE_FOLDER FILE_NUM
+        endif
+    endif
+
+    # Open corresponding TEX{DAT_NUM}.DAT file
+    string DAT_FILENAME p "TEX%d.DAT" DAT_NUM
+    open FDSE DAT_FILENAME 1
+
+    # Extract compressed data from DAT file (QuickBMS will auto-decompress zlib)
+    log FILENAME DAT_OFFSET COMP_SIZE 1
+
+    # Increment entry counter
+    math ENTRY_NUM += 1
+
+while CONTINUE == 1
+
+print "Extraction complete: %ENTRY_NUM% files extracted"
